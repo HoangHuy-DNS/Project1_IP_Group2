@@ -425,7 +425,7 @@ def compare_current_image():
 
             column += 1
 
-        for i in range(3):
+        for i in range(len(results)):
 
             image_container.columnconfigure(
                 i,
@@ -448,7 +448,6 @@ def compare_current_image():
 # ==========================================================
 
 def batch_processing():
-
     input_folder = filedialog.askdirectory(
         title="Chọn thư mục ảnh đầu vào"
     )
@@ -464,8 +463,9 @@ def batch_processing():
         return
 
     try:
-
-        method = method_combo.get()
+        # Ép cứng luôn luôn dùng "Sharpening" cho batch, 
+        # không cần phụ thuộc vào ô lựa chọn trên giao diện nữa
+        method = "Sharpening"
 
         kernel_size = int(
             kernel_combo.get()
@@ -490,7 +490,6 @@ def batch_processing():
         )
 
     except Exception as e:
-
         messagebox.showerror(
             "Lỗi Batch Processing",
             f"Không thể xử lý:\n{e}"
@@ -674,7 +673,8 @@ method_combo = ttk.Combobox(
     values=[
         "Median Blur",
         "Gaussian Blur",
-        "Bilateral Filter"
+        "Bilateral Filter",
+        "Sharpening"
     ],
     state="readonly",
     width=18
