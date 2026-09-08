@@ -20,10 +20,6 @@ from evaluation import evaluate_image
 
 original_image = None
 result_image = None
-
-reference_image = None
-reference_path = None
-
 image_path = None
 
 
@@ -104,8 +100,6 @@ def open_image():
     global original_image
     global result_image
     global image_path
-    global reference_image
-    global reference_path
 
     path = filedialog.askopenfilename(
         title="Chọn ảnh",
@@ -143,13 +137,6 @@ def open_image():
     image_path = path
 
     # ------------------------------------------------------
-    # Khi mở ảnh mới -> xóa ảnh tham chiếu cũ
-    # ------------------------------------------------------
-
-    reference_image = None
-    reference_path = None
-
-    # ------------------------------------------------------
     # Hiển thị ảnh gốc
     # ------------------------------------------------------
 
@@ -178,106 +165,9 @@ def open_image():
     status_label.config(
         text=(
             f"Đã mở ảnh: "
-            f"{os.path.basename(path)} | "
-            f"Chưa chọn ảnh tham chiếu"
+            f"{os.path.basename(path)}"
         )
     )
-
-
-# ==========================================================
-# CHỌN ẢNH THAM CHIẾU
-# ==========================================================
-
-def open_reference_image():
-    """
-    Chọn ảnh tham chiếu (Ground Truth)
-    dùng để tính PSNR và SSIM.
-
-    Ảnh tham chiếu phải là ảnh tương ứng
-    với ảnh đang được xử lý.
-    """
-
-    global reference_image
-    global reference_path
-
-    if original_image is None:
-        messagebox.showwarning(
-            "Thông báo",
-            "Vui lòng mở ảnh cần khôi phục trước."
-        )
-        return
-
-    file_path = filedialog.askopenfilename(
-        title="Chọn ảnh tham chiếu",
-        filetypes=[
-            (
-                "Image files",
-                "*.jpg *.jpeg *.png *.bmp *.tif *.tiff"
-            ),
-            ("JPEG", "*.jpg *.jpeg"),
-            ("PNG", "*.png"),
-            ("Bitmap", "*.bmp"),
-            ("TIFF", "*.tif *.tiff"),
-            ("All files", "*.*")
-        ]
-    )
-
-    if not file_path:
-        return
-
-    try:
-
-        image = cv2.imread(file_path)
-
-        if image is None:
-            messagebox.showerror(
-                "Lỗi",
-                "Không thể đọc ảnh tham chiếu."
-            )
-            return
-
-        reference_image = image
-        reference_path = file_path
-
-        # --------------------------------------------------
-        # Thông báo nếu kích thước khác
-        # --------------------------------------------------
-
-        if original_image.shape[:2] != reference_image.shape[:2]:
-
-            response = messagebox.askyesno(
-                "Kích thước khác nhau",
-                "Ảnh gốc và ảnh tham chiếu có kích thước khác nhau.\n\n"
-                "Hệ thống sẽ tự điều chỉnh kích thước khi tính PSNR/SSIM.\n\n"
-                "Bạn có muốn tiếp tục không?"
-            )
-
-            if not response:
-                reference_image = None
-                reference_path = None
-                return
-
-        # --------------------------------------------------
-        # Nếu đã có kết quả -> tính lại đánh giá
-        # --------------------------------------------------
-
-        if result_image is not None:
-            update_evaluation()
-
-        status_label.config(
-            text=(
-                "Đã chọn ảnh tham chiếu: "
-                f"{os.path.basename(file_path)}"
-            )
-        )
-
-    except Exception as e:
-
-        messagebox.showerror(
-            "Lỗi",
-            f"Không thể mở ảnh tham chiếu:\n{e}"
-        )
-
 
 # ==========================================================
 # ĐÁNH GIÁ PSNR / SSIM
@@ -287,16 +177,16 @@ def update_evaluation():
     """
     Tính PSNR và SSIM giữa:
     
-        Ảnh tham chiếu
+        Ảnh gốc
              ↓
         Ảnh sau khôi phục
     """
 
     # ------------------------------------------------------
-    # Chưa có ảnh kết quả
+    # Chưa có ảnh kết quả hoặc ảnh gốc
     # ------------------------------------------------------
 
-    if result_image is None:
+    if result_image is None or original_image is None:
 
         psnr_value_label.config(
             text="PSNR: Chưa có kết quả"
@@ -308,26 +198,10 @@ def update_evaluation():
 
         return
 
-    # ------------------------------------------------------
-    # Chưa có ảnh tham chiếu
-    # ------------------------------------------------------
-
-    if reference_image is None:
-
-        psnr_value_label.config(
-            text="PSNR: Chưa có ảnh tham chiếu"
-        )
-
-        ssim_value_label.config(
-            text="SSIM: Chưa có ảnh tham chiếu"
-        )
-
-        return
-
     try:
 
         metrics = evaluate_image(
-            reference_image,
+            original_image,
             result_image
         )
 
@@ -550,32 +424,6 @@ def compare_current_image():
         )
 
         # --------------------------------------------------
-        # Thông tin ảnh tham chiếu
-        # --------------------------------------------------
-
-        if reference_image is not None:
-
-            reference_info = (
-                "Đánh giá: Có ảnh tham chiếu"
-            )
-
-        else:
-
-            reference_info = (
-                "Đánh giá: Chưa có ảnh tham chiếu"
-            )
-
-        reference_info_label = tk.Label(
-            compare_window,
-            text=reference_info,
-            font=("Arial", 10)
-        )
-
-        reference_info_label.pack(
-            pady=3
-        )
-
-        # --------------------------------------------------
         # Khung chứa kết quả
         # --------------------------------------------------
 
@@ -651,62 +499,48 @@ def compare_current_image():
             # PSNR / SSIM
             # ------------------------------------------------
 
-            if reference_image is not None:
+            try:
 
-                try:
+                metrics = evaluate_image(
+                    original_image,
+                    image
+                )
 
-                    metrics = evaluate_image(
-                        reference_image,
-                        image
-                    )
+                psnr = metrics["psnr"]
+                ssim = metrics["ssim"]
 
-                    psnr = metrics["psnr"]
-                    ssim = metrics["ssim"]
+                if np.isinf(psnr):
+                    psnr_text = "∞"
+                else:
+                    psnr_text = f"{psnr:.2f} dB"
 
-                    if np.isinf(psnr):
-                        psnr_text = "∞"
-                    else:
-                        psnr_text = f"{psnr:.2f} dB"
+                ssim_text = f"{ssim:.4f}"
 
-                    ssim_text = f"{ssim:.4f}"
+                psnr_label = tk.Label(
+                    method_frame,
+                    text=f"PSNR: {psnr_text}",
+                    font=("Arial", 10)
+                )
 
-                    psnr_label = tk.Label(
-                        method_frame,
-                        text=f"PSNR: {psnr_text}",
-                        font=("Arial", 10)
-                    )
+                psnr_label.pack(
+                    pady=(5, 2)
+                )
 
-                    psnr_label.pack(
-                        pady=(5, 2)
-                    )
+                ssim_label = tk.Label(
+                    method_frame,
+                    text=f"SSIM: {ssim_text}",
+                    font=("Arial", 10)
+                )
 
-                    ssim_label = tk.Label(
-                        method_frame,
-                        text=f"SSIM: {ssim_text}",
-                        font=("Arial", 10)
-                    )
+                ssim_label.pack(
+                    pady=(2, 8)
+                )
 
-                    ssim_label.pack(
-                        pady=(2, 8)
-                    )
-
-                except Exception:
-
-                    metric_label = tk.Label(
-                        method_frame,
-                        text="PSNR/SSIM: Lỗi"
-                    )
-
-                    metric_label.pack(
-                        pady=8
-                    )
-
-            else:
+            except Exception:
 
                 metric_label = tk.Label(
                     method_frame,
-                    text="PSNR: --\nSSIM: --",
-                    font=("Arial", 10)
+                    text="PSNR/SSIM: Lỗi"
                 )
 
                 metric_label.pack(
@@ -1066,26 +900,6 @@ open_button.grid(
     pady=10
 )
 
-
-# ==========================================================
-# NÚT CHỌN ẢNH THAM CHIẾU
-# ==========================================================
-
-reference_button = tk.Button(
-    control_frame,
-    text="Chọn ảnh tham chiếu",
-    width=18,
-    command=open_reference_image
-)
-
-reference_button.grid(
-    row=0,
-    column=5,
-    padx=5,
-    pady=10
-)
-
-
 # ==========================================================
 # NÚT KHÔI PHỤC
 # ==========================================================
@@ -1099,7 +913,7 @@ restore_button = tk.Button(
 
 restore_button.grid(
     row=0,
-    column=6,
+    column=5,
     padx=5,
     pady=10
 )
@@ -1118,7 +932,7 @@ compare_button = tk.Button(
 
 compare_button.grid(
     row=0,
-    column=7,
+    column=6,
     padx=5,
     pady=10
 )
