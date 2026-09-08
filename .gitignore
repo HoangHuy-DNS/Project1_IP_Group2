@@ -33,3 +33,4 @@ dist/
 
 # Generated results
 results/
+dataset_processed/

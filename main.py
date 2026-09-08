@@ -1,22 +1,17 @@
 import tkinter as tk
-
-from tkinter import ttk
-from tkinter import filedialog
-from tkinter import messagebox
-
+from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
-
 import cv2
 import numpy as np
 import os
 
 from processing import (
     restore_image,
-    calculate_psnr,
-    calculate_ssim,
     compare_methods,
     process_batch
 )
+
+from evaluation import evaluate_image
 
 
 # ==========================================================
@@ -25,57 +20,92 @@ from processing import (
 
 original_image = None
 result_image = None
+
+reference_image = None
+reference_path = None
+
 image_path = None
 
 
 # ==========================================================
-# HÀM HIỂN THỊ ẢNH
+# HIỂN THỊ ẢNH
 # ==========================================================
 
-def show_image(image, label):
+def show_image(image, label, max_width=500, max_height=400):
     """
-    Hiển thị ảnh PIL lên Label.
+    Hiển thị ảnh OpenCV lên Label của Tkinter.
     """
 
     if image is None:
         return
 
-    display_image = image.copy()
+    if len(image.shape) == 2:
+        display_image = cv2.cvtColor(
+            image,
+            cv2.COLOR_GRAY2RGB
+        )
+    else:
+        display_image = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2RGB
+        )
 
-    # Kích thước tối đa
-    max_width = 700
-    max_height = 570
+    pil_image = Image.fromarray(display_image)
 
-    display_image.thumbnail(
-        (max_width, max_height),
+    width, height = pil_image.size
+
+    scale = min(
+        max_width / width,
+        max_height / height,
+        1
+    )
+
+    new_width = max(1, int(width * scale))
+    new_height = max(1, int(height * scale))
+
+    pil_image = pil_image.resize(
+        (new_width, new_height),
         Image.Resampling.LANCZOS
     )
 
-    photo = ImageTk.PhotoImage(
-        display_image
-    )
+    photo = ImageTk.PhotoImage(pil_image)
 
-    label.config(
+    label.configure(
         image=photo,
         text=""
     )
 
-    # Giữ tham chiếu
     label.image = photo
 
 
 # ==========================================================
-# HÀM MỞ ẢNH
+# RESET ĐÁNH GIÁ
+# ==========================================================
+
+def reset_evaluation():
+    """
+    Đưa phần đánh giá PSNR/SSIM về trạng thái ban đầu.
+    """
+
+    psnr_value_label.config(
+        text="PSNR: --"
+    )
+
+    ssim_value_label.config(
+        text="SSIM: --"
+    )
+
+
+# ==========================================================
+# MỞ ẢNH
 # ==========================================================
 
 def open_image():
-    """
-    Mở ảnh từ máy tính.
-    """
-
     global original_image
     global result_image
     global image_path
+    global reference_image
+    global reference_path
 
     path = filedialog.askopenfilename(
         title="Chọn ảnh",
@@ -86,223 +116,344 @@ def open_image():
             ),
             ("JPEG", "*.jpg *.jpeg"),
             ("PNG", "*.png"),
-            ("BMP", "*.bmp"),
-            ("TIFF", "*.tif *.tiff")
+            ("Bitmap", "*.bmp"),
+            ("TIFF", "*.tif *.tiff"),
+            ("All files", "*.*")
         ]
     )
 
     if not path:
         return
 
+    image = cv2.imread(path)
+
+    if image is None:
+        messagebox.showerror(
+            "Lỗi",
+            "Không thể đọc ảnh đã chọn."
+        )
+        return
+
+    # ------------------------------------------------------
+    # Cập nhật ảnh gốc
+    # ------------------------------------------------------
+
+    original_image = image
+    result_image = None
+    image_path = path
+
+    # ------------------------------------------------------
+    # Khi mở ảnh mới -> xóa ảnh tham chiếu cũ
+    # ------------------------------------------------------
+
+    reference_image = None
+    reference_path = None
+
+    # ------------------------------------------------------
+    # Hiển thị ảnh gốc
+    # ------------------------------------------------------
+
+    show_image(
+        original_image,
+        original_image_label
+    )
+
+    # ------------------------------------------------------
+    # Xóa ảnh kết quả cũ
+    # ------------------------------------------------------
+
+    result_image_label.configure(
+        image="",
+        text="Chưa có kết quả"
+    )
+
+    result_image_label.image = None
+
+    # ------------------------------------------------------
+    # Reset đánh giá
+    # ------------------------------------------------------
+
+    reset_evaluation()
+
+    status_label.config(
+        text=(
+            f"Đã mở ảnh: "
+            f"{os.path.basename(path)} | "
+            f"Chưa chọn ảnh tham chiếu"
+        )
+    )
+
+
+# ==========================================================
+# CHỌN ẢNH THAM CHIẾU
+# ==========================================================
+
+def open_reference_image():
+    """
+    Chọn ảnh tham chiếu (Ground Truth)
+    dùng để tính PSNR và SSIM.
+
+    Ảnh tham chiếu phải là ảnh tương ứng
+    với ảnh đang được xử lý.
+    """
+
+    global reference_image
+    global reference_path
+
+    if original_image is None:
+        messagebox.showwarning(
+            "Thông báo",
+            "Vui lòng mở ảnh cần khôi phục trước."
+        )
+        return
+
+    file_path = filedialog.askopenfilename(
+        title="Chọn ảnh tham chiếu",
+        filetypes=[
+            (
+                "Image files",
+                "*.jpg *.jpeg *.png *.bmp *.tif *.tiff"
+            ),
+            ("JPEG", "*.jpg *.jpeg"),
+            ("PNG", "*.png"),
+            ("Bitmap", "*.bmp"),
+            ("TIFF", "*.tif *.tiff"),
+            ("All files", "*.*")
+        ]
+    )
+
+    if not file_path:
+        return
+
     try:
 
-        image = Image.open(path)
+        image = cv2.imread(file_path)
 
-        image = image.convert("RGB")
+        if image is None:
+            messagebox.showerror(
+                "Lỗi",
+                "Không thể đọc ảnh tham chiếu."
+            )
+            return
+
+        reference_image = image
+        reference_path = file_path
+
+        # --------------------------------------------------
+        # Thông báo nếu kích thước khác
+        # --------------------------------------------------
+
+        if original_image.shape[:2] != reference_image.shape[:2]:
+
+            response = messagebox.askyesno(
+                "Kích thước khác nhau",
+                "Ảnh gốc và ảnh tham chiếu có kích thước khác nhau.\n\n"
+                "Hệ thống sẽ tự điều chỉnh kích thước khi tính PSNR/SSIM.\n\n"
+                "Bạn có muốn tiếp tục không?"
+            )
+
+            if not response:
+                reference_image = None
+                reference_path = None
+                return
+
+        # --------------------------------------------------
+        # Nếu đã có kết quả -> tính lại đánh giá
+        # --------------------------------------------------
+
+        if result_image is not None:
+            update_evaluation()
+
+        status_label.config(
+            text=(
+                "Đã chọn ảnh tham chiếu: "
+                f"{os.path.basename(file_path)}"
+            )
+        )
 
     except Exception as e:
 
         messagebox.showerror(
             "Lỗi",
-            f"Không thể mở ảnh:\n{e}"
+            f"Không thể mở ảnh tham chiếu:\n{e}"
+        )
+
+
+# ==========================================================
+# ĐÁNH GIÁ PSNR / SSIM
+# ==========================================================
+
+def update_evaluation():
+    """
+    Tính PSNR và SSIM giữa:
+    
+        Ảnh tham chiếu
+             ↓
+        Ảnh sau khôi phục
+    """
+
+    # ------------------------------------------------------
+    # Chưa có ảnh kết quả
+    # ------------------------------------------------------
+
+    if result_image is None:
+
+        psnr_value_label.config(
+            text="PSNR: Chưa có kết quả"
+        )
+
+        ssim_value_label.config(
+            text="SSIM: Chưa có kết quả"
         )
 
         return
 
-    # Lưu dữ liệu
-    original_image = image
-    image_path = path
-    result_image = None
+    # ------------------------------------------------------
+    # Chưa có ảnh tham chiếu
+    # ------------------------------------------------------
 
-    # Hiển thị ảnh gốc
-    show_image(
-        original_image,
-        original_label
-    )
+    if reference_image is None:
 
-    # Xóa kết quả cũ
-    result_label.config(
-        image="",
-        text="Chưa có kết quả"
-    )
+        psnr_value_label.config(
+            text="PSNR: Chưa có ảnh tham chiếu"
+        )
 
-    result_label.image = None
+        ssim_value_label.config(
+            text="SSIM: Chưa có ảnh tham chiếu"
+        )
 
-    # Reset thông tin
-    psnr_value.set("PSNR: --")
-    ssim_value.set("SSIM: --")
-    status_value.set(
-        f"Đã mở: {os.path.basename(path)}"
-    )
+        return
+
+    try:
+
+        metrics = evaluate_image(
+            reference_image,
+            result_image
+        )
+
+        psnr = metrics["psnr"]
+        ssim = metrics["ssim"]
+
+        # --------------------------------------------------
+        # PSNR
+        # --------------------------------------------------
+
+        if np.isinf(psnr):
+            psnr_text = "∞"
+        else:
+            psnr_text = f"{psnr:.2f} dB"
+
+        # --------------------------------------------------
+        # SSIM
+        # --------------------------------------------------
+
+        ssim_text = f"{ssim:.4f}"
+
+        psnr_value_label.config(
+            text=f"PSNR: {psnr_text}"
+        )
+
+        ssim_value_label.config(
+            text=f"SSIM: {ssim_text}"
+        )
+
+    except Exception as e:
+
+        psnr_value_label.config(
+            text="PSNR: Lỗi"
+        )
+
+        ssim_value_label.config(
+            text="SSIM: Lỗi"
+        )
+
+        print(
+            f"Lỗi đánh giá PSNR/SSIM: {e}"
+        )
 
 
 # ==========================================================
-# HÀM KHÔI PHỤC ẢNH
+# KHÔI PHỤC ẢNH
 # ==========================================================
 
 def restore_current_image():
-    """
-    Khôi phục ảnh hiện tại.
-    """
-
     global result_image
 
     if original_image is None:
 
         messagebox.showwarning(
             "Thông báo",
-            "Vui lòng mở ảnh trước!"
+            "Vui lòng mở ảnh trước."
         )
 
         return
 
+    method = method_combo.get()
+
     try:
 
-        # Lấy phương pháp
-        method = method_combo.get()
-
-        # Lấy kernel
         kernel_size = int(
             kernel_combo.get()
         )
 
-        # PIL → NumPy
-        image = np.array(
-            original_image
-        )
-
-        # RGB → BGR
-        image = cv2.cvtColor(
-            image,
-            cv2.COLOR_RGB2BGR
-        )
-
-        # Xử lý
-        result = restore_image(
-            image,
-            method,
-            kernel_size
-        )
-
-        # BGR → RGB
-        result = cv2.cvtColor(
-            result,
-            cv2.COLOR_BGR2RGB
-        )
-
-        # NumPy → PIL
-        result_image = Image.fromarray(
-            result
-        )
-
-        # Hiển thị
-        show_image(
-            result_image,
-            result_label
-        )
-
-        # --------------------------------------------------
-        # Tính PSNR và SSIM
-        #
-        # Lưu ý:
-        # Đây là phép so sánh với ảnh đầu vào.
-        # Không phải ground-truth của ảnh cũ.
-        # --------------------------------------------------
-
-        original_cv = cv2.cvtColor(
-            np.array(original_image),
-            cv2.COLOR_RGB2BGR
-        )
-
-        psnr = calculate_psnr(
-            original_cv,
-            result
-        )
-
-        ssim = calculate_ssim(
-            original_cv,
-            result
-        )
-
-        if np.isinf(psnr):
-            psnr_text = "PSNR: ∞"
-        else:
-            psnr_text = f"PSNR: {psnr:.2f} dB"
-
-        ssim_text = f"SSIM: {ssim:.4f}"
-
-        psnr_value.set(
-            psnr_text
-        )
-
-        ssim_value.set(
-            ssim_text
-        )
-
-        status_value.set(
-            f"Đã xử lý bằng {method} - Kernel {kernel_size}"
-        )
-
-    except Exception as e:
+    except ValueError:
 
         messagebox.showerror(
-            "Lỗi xử lý",
-            f"Không thể khôi phục ảnh:\n{e}"
+            "Lỗi",
+            "Kernel size không hợp lệ."
         )
 
-
-# ==========================================================
-# HÀM LƯU KẾT QUẢ
-# ==========================================================
-
-def save_result():
-
-    if result_image is None:
-
-        messagebox.showwarning(
-            "Thông báo",
-            "Chưa có ảnh kết quả để lưu!"
-        )
-
-        return
-
-    path = filedialog.asksaveasfilename(
-        title="Lưu ảnh kết quả",
-        defaultextension=".jpg",
-        filetypes=[
-            ("JPEG", "*.jpg"),
-            ("PNG", "*.png"),
-            ("BMP", "*.bmp"),
-            ("TIFF", "*.tiff")
-        ]
-    )
-
-    if not path:
         return
 
     try:
 
-        result_image.save(path)
+        # --------------------------------------------------
+        # Khôi phục ảnh
+        # --------------------------------------------------
 
-        messagebox.showinfo(
-            "Thành công",
-            "Đã lưu ảnh kết quả!"
+        result_image = restore_image(
+            original_image,
+            method,
+            kernel_size
         )
 
-        status_value.set(
-            f"Đã lưu: {os.path.basename(path)}"
+        if result_image is None:
+            raise ValueError(
+                "Không tạo được ảnh kết quả."
+            )
+
+        # --------------------------------------------------
+        # Hiển thị kết quả
+        # --------------------------------------------------
+
+        show_image(
+            result_image,
+            result_image_label
+        )
+
+        # --------------------------------------------------
+        # Đánh giá PSNR / SSIM
+        # --------------------------------------------------
+
+        update_evaluation()
+
+        status_label.config(
+            text=(
+                f"Đã khôi phục bằng: {method} | "
+                f"Kernel size: {kernel_size}"
+            )
         )
 
     except Exception as e:
 
         messagebox.showerror(
-            "Lỗi",
-            f"Không thể lưu ảnh:\n{e}"
+            "Lỗi khôi phục ảnh",
+            str(e)
         )
 
 
 # ==========================================================
-# HÀM SO SÁNH PHƯƠNG PHÁP
+# SO SÁNH CÁC PHƯƠNG PHÁP
 # ==========================================================
 
 def compare_current_image():
@@ -311,7 +462,7 @@ def compare_current_image():
 
         messagebox.showwarning(
             "Thông báo",
-            "Vui lòng mở ảnh trước!"
+            "Vui lòng mở ảnh trước."
         )
 
         return
@@ -322,132 +473,281 @@ def compare_current_image():
             kernel_combo.get()
         )
 
-        image = np.array(
-            original_image
+    except ValueError:
+
+        messagebox.showerror(
+            "Lỗi",
+            "Kernel size không hợp lệ."
         )
 
-        image = cv2.cvtColor(
-            image,
-            cv2.COLOR_RGB2BGR
-        )
+        return
+
+    try:
+
+        # --------------------------------------------------
+        # Chạy các phương pháp
+        # --------------------------------------------------
 
         results = compare_methods(
-            image,
+            original_image,
             kernel_size
         )
 
-        # Tạo cửa sổ mới
-        compare_window = tk.Toplevel(
-            root
-        )
+        if not results:
+
+            messagebox.showwarning(
+                "Thông báo",
+                "Không có kết quả để so sánh."
+            )
+
+            return
+
+        # --------------------------------------------------
+        # Tạo cửa sổ so sánh
+        # --------------------------------------------------
+
+        compare_window = tk.Toplevel(root)
 
         compare_window.title(
             "So sánh các phương pháp"
         )
 
         compare_window.geometry(
-            "1400x800"
+            "1250x780"
         )
 
-        title = tk.Label(
+        compare_window.minsize(
+            1100,
+            650
+        )
+
+        # --------------------------------------------------
+        # Tiêu đề
+        # --------------------------------------------------
+
+        title_label = tk.Label(
             compare_window,
-            text="SO SÁNH PHƯƠNG PHÁP KHÔI PHỤC",
-            font=("Arial", 20, "bold")
+            text="SO SÁNH CÁC PHƯƠNG PHÁP KHÔI PHỤC",
+            font=("Arial", 16, "bold")
         )
 
-        title.pack(
-            pady=15
+        title_label.pack(
+            pady=(10, 5)
         )
 
-        image_container = tk.Frame(
+        # --------------------------------------------------
+        # Thông tin kernel
+        # --------------------------------------------------
+
+        info_label = tk.Label(
+            compare_window,
+            text=f"Kernel size: {kernel_size}",
+            font=("Arial", 10)
+        )
+
+        info_label.pack(
+            pady=3
+        )
+
+        # --------------------------------------------------
+        # Thông tin ảnh tham chiếu
+        # --------------------------------------------------
+
+        if reference_image is not None:
+
+            reference_info = (
+                "Đánh giá: Có ảnh tham chiếu"
+            )
+
+        else:
+
+            reference_info = (
+                "Đánh giá: Chưa có ảnh tham chiếu"
+            )
+
+        reference_info_label = tk.Label(
+            compare_window,
+            text=reference_info,
+            font=("Arial", 10)
+        )
+
+        reference_info_label.pack(
+            pady=3
+        )
+
+        # --------------------------------------------------
+        # Khung chứa kết quả
+        # --------------------------------------------------
+
+        results_frame = tk.Frame(
             compare_window
         )
 
-        image_container.pack(
+        results_frame.pack(
             fill="both",
             expand=True,
             padx=10,
             pady=10
         )
 
-        # Giữ tham chiếu PhotoImage
-        compare_photos = []
+        # --------------------------------------------------
+        # Hiển thị từng phương pháp
+        # --------------------------------------------------
 
-        column = 0
+        for column, (method_name, image) in enumerate(
+            results.items()
+        ):
 
-        for method, result in results.items():
-
-            frame = tk.LabelFrame(
-                image_container,
-                text=method,
-                font=("Arial", 11)
+            method_frame = tk.Frame(
+                results_frame,
+                relief="groove",
+                borderwidth=1
             )
 
-            frame.grid(
+            method_frame.grid(
                 row=0,
                 column=column,
-                padx=10,
-                pady=10,
-                sticky="nsew"
+                padx=5,
+                pady=5,
+                sticky="n"
             )
 
-            image_rgb = cv2.cvtColor(
-                result,
-                cv2.COLOR_BGR2RGB
+            # ------------------------------------------------
+            # Tên phương pháp
+            # ------------------------------------------------
+
+            method_label = tk.Label(
+                method_frame,
+                text=method_name,
+                font=("Arial", 11, "bold")
             )
 
-            pil_image = Image.fromarray(
-                image_rgb
+            method_label.pack(
+                pady=5
             )
 
-            pil_image.thumbnail(
-                (400, 550),
-                Image.Resampling.LANCZOS
+            # ------------------------------------------------
+            # Ảnh kết quả
+            # ------------------------------------------------
+
+            image_label = tk.Label(
+                method_frame,
+                text="Đang hiển thị..."
             )
 
-            photo = ImageTk.PhotoImage(
-                pil_image
+            image_label.pack(
+                padx=5,
+                pady=5
             )
 
-            compare_photos.append(
-                photo
+            show_image(
+                image,
+                image_label,
+                max_width=240,
+                max_height=300
             )
 
-            label = tk.Label(
-                frame,
-                image=photo
-            )
+            # ------------------------------------------------
+            # PSNR / SSIM
+            # ------------------------------------------------
 
-            label.pack(
-                padx=10,
-                pady=10
-            )
+            if reference_image is not None:
 
-            column += 1
+                try:
 
-        for i in range(len(results)):
+                    metrics = evaluate_image(
+                        reference_image,
+                        image
+                    )
 
-            image_container.columnconfigure(
-                i,
-                weight=1
-            )
+                    psnr = metrics["psnr"]
+                    ssim = metrics["ssim"]
 
-        # Giữ tham chiếu
-        compare_window.compare_photos = compare_photos
+                    if np.isinf(psnr):
+                        psnr_text = "∞"
+                    else:
+                        psnr_text = f"{psnr:.2f} dB"
+
+                    ssim_text = f"{ssim:.4f}"
+
+                    psnr_label = tk.Label(
+                        method_frame,
+                        text=f"PSNR: {psnr_text}",
+                        font=("Arial", 10)
+                    )
+
+                    psnr_label.pack(
+                        pady=(5, 2)
+                    )
+
+                    ssim_label = tk.Label(
+                        method_frame,
+                        text=f"SSIM: {ssim_text}",
+                        font=("Arial", 10)
+                    )
+
+                    ssim_label.pack(
+                        pady=(2, 8)
+                    )
+
+                except Exception:
+
+                    metric_label = tk.Label(
+                        method_frame,
+                        text="PSNR/SSIM: Lỗi"
+                    )
+
+                    metric_label.pack(
+                        pady=8
+                    )
+
+            else:
+
+                metric_label = tk.Label(
+                    method_frame,
+                    text="PSNR: --\nSSIM: --",
+                    font=("Arial", 10)
+                )
+
+                metric_label.pack(
+                    pady=8
+                )
+
+        # --------------------------------------------------
+        # Nút đóng
+        # --------------------------------------------------
+
+        close_button = tk.Button(
+            compare_window,
+            text="Đóng",
+            width=12,
+            command=compare_window.destroy
+        )
+
+        close_button.pack(
+            pady=10
+        )
 
     except Exception as e:
 
         messagebox.showerror(
-            "Lỗi",
-            f"Không thể so sánh:\n{e}"
+            "Lỗi so sánh",
+            str(e)
         )
 
 
 # ==========================================================
-# HÀM BATCH PROCESSING
+# BATCH PROCESSING
 # ==========================================================
 
 def batch_processing():
+    """
+    Xử lý hàng loạt ảnh trong một thư mục.
+
+    Phương pháp và kernel được lấy trực tiếp
+    từ GUI.
+    """
+
     input_folder = filedialog.askdirectory(
         title="Chọn thư mục ảnh đầu vào"
     )
@@ -462,194 +762,210 @@ def batch_processing():
     if not output_folder:
         return
 
+    method = method_combo.get()
+
     try:
-        # Ép cứng luôn luôn dùng "Sharpening" cho batch, 
-        # không cần phụ thuộc vào ô lựa chọn trên giao diện nữa
-        method = "Sharpening"
 
         kernel_size = int(
             kernel_combo.get()
         )
 
+    except ValueError:
+
+        messagebox.showerror(
+            "Lỗi",
+            "Kernel size không hợp lệ."
+        )
+
+        return
+
+    # ------------------------------------------------------
+    # Xác nhận
+    # ------------------------------------------------------
+
+    confirm = messagebox.askyesno(
+        "Xác nhận Batch Processing",
+        f"Phương pháp: {method}\n"
+        f"Kernel size: {kernel_size}\n\n"
+        f"Thư mục đầu vào:\n{input_folder}\n\n"
+        f"Thư mục đầu ra:\n{output_folder}\n\n"
+        "Bạn có muốn bắt đầu xử lý không?"
+    )
+
+    if not confirm:
+        return
+
+    try:
+
+        status_label.config(
+            text="Đang xử lý Batch Processing..."
+        )
+
+        root.update_idletasks()
+
+        # --------------------------------------------------
+        # Xử lý Batch
+        # --------------------------------------------------
+
         success, failed = process_batch(
-            input_folder,
-            output_folder,
-            method,
-            kernel_size
+            input_folder=input_folder,
+            output_folder=output_folder,
+            method=method,
+            kernel_size=kernel_size
+        )
+
+        total = success + failed
+
+        status_label.config(
+            text=(
+                f"Batch hoàn thành: "
+                f"{success}/{total} ảnh thành công"
+            )
         )
 
         messagebox.showinfo(
-            "Batch Processing",
-            f"Đã xử lý xong!\n\n"
-            f"Thành công: {success} ảnh\n"
-            f"Lỗi: {failed} ảnh"
-        )
-
-        status_value.set(
-            f"Batch: {success} thành công, {failed} lỗi"
+            "Batch Processing hoàn tất",
+            f"Phương pháp: {method}\n"
+            f"Kernel size: {kernel_size}\n\n"
+            f"Tổng số ảnh: {total}\n"
+            f"Thành công: {success}\n"
+            f"Thất bại: {failed}"
         )
 
     except Exception as e:
+
+        status_label.config(
+            text="Batch Processing thất bại."
+        )
+
         messagebox.showerror(
             "Lỗi Batch Processing",
-            f"Không thể xử lý:\n{e}"
+            str(e)
         )
 
 
 # ==========================================================
-# TẠO CỬA SỔ
+# LƯU KẾT QUẢ
+# ==========================================================
+
+def save_result():
+
+    if result_image is None:
+
+        messagebox.showwarning(
+            "Thông báo",
+            "Chưa có ảnh kết quả để lưu."
+        )
+
+        return
+
+    save_path = filedialog.asksaveasfilename(
+        title="Lưu ảnh kết quả",
+        defaultextension=".jpg",
+        filetypes=[
+            ("JPEG", "*.jpg"),
+            ("PNG", "*.png"),
+            ("Bitmap", "*.bmp"),
+            ("All files", "*.*")
+        ]
+    )
+
+    if not save_path:
+        return
+
+    try:
+
+        success = cv2.imwrite(
+            save_path,
+            result_image
+        )
+
+        if not success:
+
+            raise ValueError(
+                "Không thể lưu ảnh."
+            )
+
+        status_label.config(
+            text=(
+                f"Đã lưu: "
+                f"{os.path.basename(save_path)}"
+            )
+        )
+
+        messagebox.showinfo(
+            "Thành công",
+            "Đã lưu ảnh kết quả."
+        )
+
+    except Exception as e:
+
+        messagebox.showerror(
+            "Lỗi lưu ảnh",
+            str(e)
+        )
+
+
+# ==========================================================
+# TẠO GIAO DIỆN
 # ==========================================================
 
 root = tk.Tk()
 
 root.title(
-    "Ứng dụng khôi phục ảnh cũ"
+    "Ứng dụng khôi phục ảnh cũ - Project 1"
 )
 
 root.geometry(
-    "1650x950"
+    "1200x750"
 )
 
 root.minsize(
-    1100,
-    700
+    1000,
+    650
 )
 
 
 # ==========================================================
-# TITLE
+# TIÊU ĐỀ
 # ==========================================================
 
-title_label = tk.Label(
+title = tk.Label(
     root,
     text="ỨNG DỤNG KHÔI PHỤC ẢNH CŨ",
-    font=("Arial", 26, "bold")
+    font=("Arial", 20, "bold")
 )
 
-title_label.pack(
-    pady=(15, 10)
-)
-
-
-# ==========================================================
-# NÚT MỞ ẢNH
-# ==========================================================
-
-open_button = tk.Button(
-    root,
-    text="Mở ảnh",
-    font=("Arial", 12),
-    width=12,
-    command=open_image
-)
-
-open_button.pack(
-    pady=5
-)
-
-
-# ==========================================================
-# KHU VỰC HIỂN THỊ ẢNH
-# ==========================================================
-
-image_frame = tk.Frame(
-    root
-)
-
-image_frame.pack(
-    fill="both",
-    expand=True,
-    padx=25,
+title.pack(
     pady=10
 )
 
-# Cho hai cột bằng nhau
-image_frame.columnconfigure(
-    0,
-    weight=1
-)
 
-image_frame.columnconfigure(
-    1,
-    weight=1
-)
-
-image_frame.rowconfigure(
-    0,
-    weight=1
-)
-
-
-# ==========================================================
-# ẢNH BAN ĐẦU
-# ==========================================================
-
-original_frame = tk.LabelFrame(
-    image_frame,
-    text="Ảnh ban đầu",
+subtitle = tk.Label(
+    root,
+    text="Project 1 - Xử lý ảnh",
     font=("Arial", 11)
 )
 
-original_frame.grid(
-    row=0,
-    column=0,
-    padx=10,
-    sticky="nsew"
-)
-
-original_label = tk.Label(
-    original_frame,
-    text="Chưa có ảnh",
-    font=("Arial", 12)
-)
-
-original_label.pack(
-    fill="both",
-    expand=True
+subtitle.pack(
+    pady=(0, 10)
 )
 
 
 # ==========================================================
-# ẢNH KẾT QUẢ
-# ==========================================================
-
-result_frame = tk.LabelFrame(
-    image_frame,
-    text="Ảnh kết quả",
-    font=("Arial", 11)
-)
-
-result_frame.grid(
-    row=0,
-    column=1,
-    padx=10,
-    sticky="nsew"
-)
-
-result_label = tk.Label(
-    result_frame,
-    text="Chưa có kết quả",
-    font=("Arial", 12)
-)
-
-result_label.pack(
-    fill="both",
-    expand=True
-)
-
-
-# ==========================================================
-# KHU VỰC ĐIỀU KHIỂN
+# KHUNG ĐIỀU KHIỂN
 # ==========================================================
 
 control_frame = tk.Frame(
-    root
+    root,
+    relief="groove",
+    borderwidth=1
 )
 
 control_frame.pack(
     fill="x",
-    padx=30,
-    pady=5
+    padx=15,
+    pady=10
 )
 
 
@@ -659,67 +975,114 @@ control_frame.pack(
 
 method_label = tk.Label(
     control_frame,
-    text="Phương pháp:",
-    font=("Arial", 11)
+    text="Phương pháp:"
 )
 
-method_label.pack(
-    side="left",
-    padx=5
+method_label.grid(
+    row=0,
+    column=0,
+    padx=10,
+    pady=10
 )
+
 
 method_combo = ttk.Combobox(
     control_frame,
+    state="readonly",
+    width=20,
     values=[
         "Median Blur",
         "Gaussian Blur",
         "Bilateral Filter",
-        "Sharpening"
-    ],
-    state="readonly",
-    width=18
+        "Sharpening",
+        "Inpainting"
+    ]
 )
 
 method_combo.current(0)
 
-method_combo.pack(
-    side="left",
-    padx=5
+method_combo.grid(
+    row=0,
+    column=1,
+    padx=10,
+    pady=10
 )
 
 
 # ==========================================================
-# KERNEL
+# KERNEL SIZE
 # ==========================================================
 
 kernel_label = tk.Label(
     control_frame,
-    text="Kernel:",
-    font=("Arial", 11)
+    text="Kernel size:"
 )
 
-kernel_label.pack(
-    side="left",
-    padx=(15, 5)
+kernel_label.grid(
+    row=0,
+    column=2,
+    padx=10,
+    pady=10
 )
+
 
 kernel_combo = ttk.Combobox(
     control_frame,
-    values=[
-        3,
-        5,
-        7,
-        9
-    ],
     state="readonly",
-    width=5
+    width=10,
+    values=[
+        "3",
+        "5",
+        "7",
+        "9"
+    ]
 )
 
-kernel_combo.current(1)
+kernel_combo.set("5")
 
-kernel_combo.pack(
-    side="left",
-    padx=5
+kernel_combo.grid(
+    row=0,
+    column=3,
+    padx=10,
+    pady=10
+)
+
+
+# ==========================================================
+# NÚT MỞ ẢNH
+# ==========================================================
+
+open_button = tk.Button(
+    control_frame,
+    text="Mở ảnh",
+    width=14,
+    command=open_image
+)
+
+open_button.grid(
+    row=0,
+    column=4,
+    padx=5,
+    pady=10
+)
+
+
+# ==========================================================
+# NÚT CHỌN ẢNH THAM CHIẾU
+# ==========================================================
+
+reference_button = tk.Button(
+    control_frame,
+    text="Chọn ảnh tham chiếu",
+    width=18,
+    command=open_reference_image
+)
+
+reference_button.grid(
+    row=0,
+    column=5,
+    padx=5,
+    pady=10
 )
 
 
@@ -730,14 +1093,15 @@ kernel_combo.pack(
 restore_button = tk.Button(
     control_frame,
     text="Khôi phục",
-    font=("Arial", 11),
-    width=12,
+    width=14,
     command=restore_current_image
 )
 
-restore_button.pack(
-    side="left",
-    padx=10
+restore_button.grid(
+    row=0,
+    column=6,
+    padx=5,
+    pady=10
 )
 
 
@@ -748,98 +1112,187 @@ restore_button.pack(
 compare_button = tk.Button(
     control_frame,
     text="So sánh",
-    font=("Arial", 11),
-    width=10,
+    width=14,
     command=compare_current_image
 )
 
-compare_button.pack(
-    side="left",
-    padx=5
+compare_button.grid(
+    row=0,
+    column=7,
+    padx=5,
+    pady=10
 )
 
 
 # ==========================================================
-# NÚT BATCH
+# NÚT BATCH PROCESSING
 # ==========================================================
 
 batch_button = tk.Button(
     control_frame,
     text="Batch Processing",
-    font=("Arial", 11),
     width=16,
     command=batch_processing
 )
 
-batch_button.pack(
-    side="left",
-    padx=5
+batch_button.grid(
+    row=1,
+    column=4,
+    padx=5,
+    pady=8
 )
 
 
 # ==========================================================
-# NÚT LƯU
+# NÚT LƯU KẾT QUẢ
 # ==========================================================
 
 save_button = tk.Button(
     control_frame,
     text="Lưu kết quả",
-    font=("Arial", 11),
-    width=13,
+    width=14,
     command=save_result
 )
 
-save_button.pack(
+save_button.grid(
+    row=1,
+    column=5,
+    padx=5,
+    pady=8
+)
+
+
+# ==========================================================
+# KHUNG HIỂN THỊ ẢNH
+# ==========================================================
+
+image_frame = tk.Frame(
+    root
+)
+
+image_frame.pack(
+    fill="both",
+    expand=True,
+    padx=15,
+    pady=10
+)
+
+
+# ==========================================================
+# ẢNH GỐC
+# ==========================================================
+
+original_frame = tk.LabelFrame(
+    image_frame,
+    text="Ảnh gốc",
+    font=("Arial", 11, "bold")
+)
+
+original_frame.pack(
     side="left",
+    fill="both",
+    expand=True,
     padx=5
 )
 
 
+original_image_label = tk.Label(
+    original_frame,
+    text="Chưa mở ảnh",
+    font=("Arial", 12)
+)
+
+original_image_label.pack(
+    fill="both",
+    expand=True,
+    padx=10,
+    pady=10
+)
+
+
 # ==========================================================
-# KHU VỰC ĐÁNH GIÁ
+# ẢNH KẾT QUẢ
+# ==========================================================
+
+result_frame = tk.LabelFrame(
+    image_frame,
+    text="Ảnh sau khôi phục",
+    font=("Arial", 11, "bold")
+)
+
+result_frame.pack(
+    side="right",
+    fill="both",
+    expand=True,
+    padx=5
+)
+
+
+result_image_label = tk.Label(
+    result_frame,
+    text="Chưa có kết quả",
+    font=("Arial", 12)
+)
+
+result_image_label.pack(
+    fill="both",
+    expand=True,
+    padx=10,
+    pady=10
+)
+
+
+# ==========================================================
+# KHUNG ĐÁNH GIÁ
 # ==========================================================
 
 evaluation_frame = tk.Frame(
-    root
+    root,
+    relief="groove",
+    borderwidth=1
 )
 
 evaluation_frame.pack(
     fill="x",
-    padx=30,
+    padx=15,
     pady=5
 )
 
 
-psnr_value = tk.StringVar(
-    value="PSNR: --"
-)
-
-ssim_value = tk.StringVar(
-    value="SSIM: --"
-)
-
-
-psnr_label = tk.Label(
+evaluation_title = tk.Label(
     evaluation_frame,
-    textvariable=psnr_value,
+    text="ĐÁNH GIÁ KẾT QUẢ",
     font=("Arial", 11, "bold")
 )
 
-psnr_label.pack(
+evaluation_title.pack(
     side="left",
-    padx=15
+    padx=15,
+    pady=8
 )
 
 
-ssim_label = tk.Label(
+psnr_value_label = tk.Label(
     evaluation_frame,
-    textvariable=ssim_value,
-    font=("Arial", 11, "bold")
+    text="PSNR: --",
+    font=("Arial", 11)
 )
 
-ssim_label.pack(
+psnr_value_label.pack(
     side="left",
-    padx=15
+    padx=20
+)
+
+
+ssim_value_label = tk.Label(
+    evaluation_frame,
+    text="SSIM: --",
+    font=("Arial", 11)
+)
+
+ssim_value_label.pack(
+    side="left",
+    padx=20
 )
 
 
@@ -847,21 +1300,16 @@ ssim_label.pack(
 # STATUS
 # ==========================================================
 
-status_value = tk.StringVar(
-    value="Sẵn sàng"
-)
-
 status_label = tk.Label(
     root,
-    textvariable=status_value,
+    text="Sẵn sàng.",
     anchor="w",
-    font=("Arial", 10)
+    relief="sunken"
 )
 
 status_label.pack(
     fill="x",
-    padx=30,
-    pady=(0, 10)
+    side="bottom"
 )
 
 
