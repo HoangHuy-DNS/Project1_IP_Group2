@@ -1,18 +1,51 @@
 from pathlib import Path
+
 from processing import process_batch
 
+
 if __name__ == "__main__":
-    # Tự động lấy thư mục gốc chứa file batch.py
+
+    # ========================================================
+    # Xác định thư mục gốc của project
+    # ========================================================
+
     BASE_DIR = Path(__file__).resolve().parent
-    
-    input_dir = BASE_DIR / "dataset"
-    output_dir = BASE_DIR / "dataset_processed"
 
-    print(f"[*] Thư mục gốc của project: {BASE_DIR}")
-    print(f"[*] Thư mục đầu vào: {input_dir}")
-    print(f"[*] Thư mục đầu ra: {output_dir}\n")
+    # Dataset đầu vào
+    input_dir = BASE_DIR / "data" / "dataset"
 
-    # Gọi hàm xử lý hàng loạt và nhận về số lượng thành công, thất bại
+    # Kết quả Batch Processing
+    output_dir = BASE_DIR / "data" / "dataset_processed"
+
+    print(
+        f"[*] Thư mục gốc của project: {BASE_DIR}"
+    )
+
+    print(
+        f"[*] Thư mục đầu vào: {input_dir}"
+    )
+
+    print(
+        f"[*] Thư mục đầu ra: {output_dir}\n"
+    )
+
+    # ========================================================
+    # Kiểm tra dataset
+    # ========================================================
+
+    if not input_dir.exists():
+        print(
+            "[!] Không tìm thấy thư mục dataset."
+        )
+        print(
+            f"[!] Đường dẫn: {input_dir}"
+        )
+        raise SystemExit(1)
+
+    # ========================================================
+    # Batch Processing
+    # ========================================================
+
     success, failed = process_batch(
         input_folder=str(input_dir),
         output_folder=str(output_dir),
@@ -20,14 +53,26 @@ if __name__ == "__main__":
         kernel_size=5
     )
 
-    # Tính tổng số ảnh
+    # ========================================================
+    # Thống kê
+    # ========================================================
+
     total_images = success + failed
 
-    # In bảng thống kê tổng kết
-    print("\n" + "="*40)
+    print("\n" + "=" * 40)
     print("         BẢNG THỐNG KÊ KẾT QUẢ")
-    print("="*40)
-    print(f" Tổng số ảnh quét được  : {total_images}")
-    print(f" Xử lý thành công       : {success}")
-    print(f" Xử lý thất bại         : {failed}")
-    print("="*40)
+    print("=" * 40)
+
+    print(
+        f" Tổng số ảnh quét được  : {total_images}"
+    )
+
+    print(
+        f" Xử lý thành công       : {success}"
+    )
+
+    print(
+        f" Xử lý thất bại         : {failed}"
+    )
+
+    print("=" * 40)

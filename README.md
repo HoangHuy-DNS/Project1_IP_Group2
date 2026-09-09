@@ -6,13 +6,21 @@
 
 **Ứng dụng khôi phục ảnh cũ**
 
-Mục tiêu của dự án là xây dựng một ứng dụng có giao diện đồ họa (GUI) hỗ trợ khôi phục ảnh bằng các phương pháp xử lý ảnh, cho phép người dùng thay đổi tham số, xem kết quả trước và sau khi xử lý, lưu ảnh kết quả và xử lý nhiều ảnh.
+Mục tiêu của dự án là xây dựng một ứng dụng có giao diện đồ họa (GUI) hỗ trợ khôi phục ảnh bằng các phương pháp xử lý ảnh.
+
+Ứng dụng cho phép người dùng lựa chọn phương pháp xử lý, thay đổi tham số, xem ảnh trước và sau khi xử lý, đánh giá kết quả bằng PSNR và SSIM, so sánh các phương pháp và xử lý nhiều ảnh bằng Batch Processing.
+
+Project 1 của nhóm sử dụng **dataset ảnh**, không sử dụng video.
+
+---
 
 ## 2. Thành viên nhóm
 
 - Nguyễn Hoàng Huy
 - Nguyễn Đăng Khoa
 - Nguyễn Viết Anh Khôi
+
+---
 
 ## 3. Công nghệ sử dụng
 
@@ -23,23 +31,77 @@ Mục tiêu của dự án là xây dựng một ứng dụng có giao diện đ
 - Tkinter
 - Visual Studio Code
 
-## 4. Chức năng hiện tại
+---
+
+## 4. Chức năng
+
+Ứng dụng cung cấp các chức năng:
 
 - Mở ảnh
 - Hiển thị ảnh ban đầu
-- Khôi phục ảnh
 - Lựa chọn phương pháp xử lý
 - Điều chỉnh Kernel
-- Hiển thị ảnh kết quả
+- Khôi phục ảnh
+- Hiển thị ảnh trước và sau khi xử lý
+- Tính PSNR
+- Tính SSIM
 - So sánh các phương pháp xử lý
 - Batch Processing
 - Lưu ảnh kết quả
-- Tính PSNR
-- Tính SSIM
 
-## 5. Phương pháp xử lý
+---
 
-Các phương pháp đang được cài đặt trong chương trình:
+## 5. Các phương pháp xử lý
+
+Các phương pháp được cài đặt:
+
+### 5.1. Median Blur
+
+Sử dụng bộ lọc trung vị để giảm nhiễu, đặc biệt phù hợp với nhiễu dạng điểm hoặc salt-and-pepper.
+
+### 5.2. Gaussian Blur
+
+Làm mượt ảnh và giảm nhiễu bằng bộ lọc Gaussian.
+
+### 5.3. Bilateral Filter
+
+Giảm nhiễu trong khi cố gắng giữ lại các đường biên của ảnh.
+
+### 5.4. Sharpening
+
+Tăng độ sắc nét của ảnh bằng phương pháp Unsharp Mask.
+
+### 5.5. Inpainting
+
+Phát hiện các vùng lỗi nhỏ như đốm hoặc vết xước và khôi phục vùng ảnh đó bằng phương pháp Inpainting.
+
+---
+
+## 6. Đánh giá kết quả
+
+Ứng dụng sử dụng hai chỉ số:
+
+### PSNR
+
+PSNR (Peak Signal-to-Noise Ratio) được sử dụng để định lượng mức độ sai khác giữa hai ảnh.
+
+Giá trị PSNR càng cao thì mức độ tương đồng giữa hai ảnh càng lớn.
+
+### SSIM
+
+SSIM (Structural Similarity Index Measure) đánh giá mức độ tương đồng về cấu trúc và thông tin hình ảnh.
+
+Giá trị SSIM càng gần 1 thì hai ảnh càng tương đồng.
+
+Trong phiên bản hiện tại, PSNR và SSIM được sử dụng để định lượng mức độ tương đồng giữa ảnh đầu vào và ảnh sau xử lý, kết hợp với đánh giá trực quan khi so sánh kết quả.
+
+---
+
+## 7. So sánh các phương pháp
+
+Chức năng So sánh cho phép chạy nhiều phương pháp trên cùng một ảnh với cùng tham số Kernel.
+
+Các phương pháp được so sánh:
 
 - Median Blur
 - Gaussian Blur
@@ -47,54 +109,70 @@ Các phương pháp đang được cài đặt trong chương trình:
 - Sharpening
 - Inpainting
 
-## 6. Đánh giá kết quả
+Kết quả của từng phương pháp được hiển thị cùng với các chỉ số PSNR và SSIM.
 
-Dự án sử dụng hai chỉ số để đánh giá chất lượng ảnh:
+Việc so sánh giúp đánh giá sự khác biệt giữa các phương pháp trên từng ảnh cụ thể.
 
-### PSNR
+---
 
-PSNR (Peak Signal-to-Noise Ratio) được sử dụng để đánh giá mức độ sai khác giữa ảnh tham chiếu và ảnh sau khi xử lý.
+## 8. Batch Processing
 
-Giá trị PSNR càng cao thì mức độ tương đồng giữa hai ảnh càng lớn.
+Batch Processing cho phép xử lý nhiều ảnh trong cùng một thư mục.
 
-### SSIM
+Các bước thực hiện:
 
-SSIM (Structural Similarity Index Measure) được sử dụng để đánh giá mức độ tương đồng về cấu trúc và thông tin hình ảnh.
+1. Chọn thư mục ảnh đầu vào.
+2. Chọn phương pháp xử lý.
+3. Điều chỉnh Kernel.
+4. Chọn thư mục lưu kết quả.
+5. Tiến hành xử lý hàng loạt.
 
-Giá trị SSIM càng gần 1 thì hai ảnh càng tương đồng.
+Chương trình hỗ trợ các định dạng:
 
-## 7. Batch Processing
+- JPG
+- JPEG
+- PNG
+- BMP
 
-Chức năng Batch Processing cho phép xử lý nhiều ảnh trong một thư mục.
+Kết quả Batch Processing được lưu trong thư mục:
 
-Người dùng có thể:
+`data/dataset_processed/`
 
-- Chọn thư mục ảnh đầu vào.
-- Chọn phương pháp xử lý.
-- Điều chỉnh Kernel.
-- Chọn thư mục lưu kết quả.
-- Xử lý nhiều ảnh tự động.
+---
 
-## 8. Dataset
+## 9. Dataset
 
-Dataset của dự án hiện có:
+Dataset hiện tại của Project 1 gồm:
 
-- 82 file ảnh.
-- 81 ảnh đọc được bằng OpenCV.
-- 1 file ảnh không đọc được.
+- **214 file ảnh**
+- Đáp ứng yêu cầu tối thiểu **≥50 ảnh** của đề bài.
 
-Dataset gồm các định dạng:
+Các định dạng ảnh trong dataset gồm:
 
 - JPG
 - JPEG
 - PNG
 
-Số lượng ảnh hợp lệ hiện tại đáp ứng yêu cầu tối thiểu 50 ảnh cho Project 1.
+Dataset được lưu tại:
 
-## 9. Cấu trúc dự án
+`data/dataset/`
+
+---
+
+## 10. Cấu trúc dự án
 
 ```text
 Project1_IP_Group2/
+│
+├── data/
+│   ├── dataset/
+│   │   └── 214 ảnh
+│   │
+│   ├── dataset_processed/
+│   │   └── kết quả Batch Processing
+│   │
+│   ├── input/
+│   └── output/
 │
 ├── main.py
 ├── processing.py
@@ -103,13 +181,5 @@ Project1_IP_Group2/
 ├── requirements.txt
 ├── README.md
 ├── .gitignore
-│
-├── dataset/
-│
-├── data/
-│   ├── input/
-│   ├── output/
-│   └── reference/
-│
-└── results/
+└── venv/
 ```
