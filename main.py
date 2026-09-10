@@ -591,29 +591,14 @@ def compare_current_image():
 
 def batch_processing():
     """
-    Giao diện Batch Processing.
-
-    Cho phép:
-    - Chọn thư mục đầu vào.
-    - Chọn phương pháp.
-    - Điều chỉnh kernel.
-    - Chọn thư mục đầu ra.
-    - Xử lý nhiều ảnh.
-    - Đánh giá PSNR / SSIM trung bình.
-    - Hiển thị ảnh mẫu trước / sau.
+    Giao diện Batch Processing với tính năng chuyển đổi qua lại (Next/Prev)
+    giữa các cặp ảnh đã xử lý trong Dataset.
     """
-
-    input_folder = filedialog.askdirectory(
-        title="Chọn thư mục ảnh đầu vào"
-    )
-
+    input_folder = filedialog.askdirectory(title="Chọn thư mục ảnh đầu vào")
     if not input_folder:
         return
 
-    output_folder = filedialog.askdirectory(
-        title="Chọn thư mục lưu kết quả"
-    )
-
+    output_folder = filedialog.askdirectory(title="Chọn thư mục lưu kết quả")
     if not output_folder:
         return
 
@@ -621,17 +606,11 @@ def batch_processing():
     kernel_size = get_kernel_size()
 
     if not method:
-        messagebox.showwarning(
-            "Thông báo",
-            "Vui lòng chọn phương pháp xử lý."
-        )
+        messagebox.showwarning("Thông báo", "Vui lòng chọn phương pháp xử lý.")
         return
 
     try:
-        # ----------------------------------------------------
-        # Xử lý Batch
-        # ----------------------------------------------------
-
+        # 1. Chạy Batch Processing
         success, failed = process_batch(
             input_folder=input_folder,
             output_folder=output_folder,
@@ -640,343 +619,173 @@ def batch_processing():
         )
 
         total = success + failed
+        supported_extensions = {".jpg", ".jpeg", ".png", ".bmp"}
 
-        # ----------------------------------------------------
-        # Tính PSNR / SSIM trung bình
-        # ----------------------------------------------------
+        input_path = Path(input_folder)
+        output_path = Path(output_folder)
 
+        # 2. Thu thập danh sách TẤT CẢ các cặp ảnh để duyệt
+        processed_items = []  # Lưu danh sách dict: {name, orig_img, rest_img, psnr, ssim}
         psnr_values = []
         ssim_values = []
 
-        supported_extensions = {
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".bmp"
-        }
-
-        input_path = Path(
-            input_folder
-        )
-
-        output_path = Path(
-            output_folder
-        )
-
-        sample_original = None
-        sample_result = None
-
         for file_path in input_path.rglob("*"):
-
-            if not file_path.is_file():
+            if not file_path.is_file() or file_path.suffix.lower() not in supported_extensions:
                 continue
 
-            if (
-                file_path.suffix.lower()
-                not in supported_extensions
-            ):
-                continue
-
-            relative_path = (
-                file_path.relative_to(
-                    input_path
-                )
-            )
-
-            output_file = (
-                output_path / relative_path
-            )
+            relative_path = file_path.relative_to(input_path)
+            output_file = output_path / relative_path
 
             if not output_file.exists():
                 continue
 
-            original = cv2.imread(
-                str(file_path)
-            )
+            original = cv2.imread(str(file_path))
+            restored = cv2.imread(str(output_file))
 
-            restored = cv2.imread(
-                str(output_file)
-            )
-
-            if (
-                original is None
-                or restored is None
-            ):
+            if original is None or restored is None:
                 continue
 
             try:
-                metrics = evaluate_image(
-                    original,
-                    restored
-                )
+                metrics = evaluate_image(original, restored)
+                p_val = metrics["psnr"]
+                s_val = metrics["ssim"]
 
-                if not np.isinf(
-                    metrics["psnr"]
-                ):
-                    psnr_values.append(
-                        metrics["psnr"]
-                    )
+                if not np.isinf(p_val):
+                    psnr_values.append(p_val)
+                ssim_values.append(s_val)
 
-                ssim_values.append(
-                    metrics["ssim"]
-                )
-
-                # Lấy ảnh đầu tiên làm ảnh mẫu
-                if sample_original is None:
-                    sample_original = original
-                    sample_result = restored
-
+                processed_items.append({
+                    "name": file_path.name,
+                    "original": original,
+                    "restored": restored,
+                    "psnr": p_val,
+                    "ssim": s_val
+                })
             except Exception:
                 continue
 
-        # ----------------------------------------------------
-        # Tính trung bình
-        # ----------------------------------------------------
+        # 3. Tính trung bình
+        avg_psnr_text = f"{np.mean(psnr_values):.2f} dB" if psnr_values else "--"
+        avg_ssim_text = f"{np.mean(ssim_values):.4f}" if ssim_values else "--"
 
-        if psnr_values:
-            avg_psnr = np.mean(
-                psnr_values
-            )
-            avg_psnr_text = (
-                f"{avg_psnr:.2f} dB"
-            )
-        else:
-            avg_psnr_text = "--"
+        if not processed_items:
+            messagebox.showinfo("Kết quả", "Không tìm thấy ảnh kết quả để hiển thị.")
+            return
 
-        if ssim_values:
-            avg_ssim = np.mean(
-                ssim_values
-            )
-            avg_ssim_text = (
-                f"{avg_ssim:.4f}"
-            )
-        else:
-            avg_ssim_text = "--"
+        # 4. Tạo cửa sổ Toplevel
+        batch_window = tk.Toplevel(root)
+        batch_window.title("KẾT QUẢ BATCH PROCESSING")
+        batch_window.geometry("1050x780")
+        batch_window.minsize(900, 650)
 
-        # ----------------------------------------------------
-        # Cửa sổ kết quả
-        # ----------------------------------------------------
-
-        batch_window = tk.Toplevel(
-            root
-        )
-
-        batch_window.title(
-            "Kết quả Batch Processing"
-        )
-
-        batch_window.geometry(
-            "1000x700"
-        )
-
-        batch_window.minsize(
-            850,
-            600
-        )
-
-        title = tk.Label(
+        # Tiêu đề
+        tk.Label(
             batch_window,
             text="KẾT QUẢ BATCH PROCESSING",
             font=("Arial", 16, "bold")
-        )
+        ).pack(pady=(15, 10))
 
-        title.pack(
-            pady=(15, 10)
-        )
+        # Khung thống kê
+        info_frame = tk.Frame(batch_window)
+        info_frame.pack(pady=5)
 
-        info_frame = tk.Frame(
-            batch_window
-        )
+        tk.Label(info_frame, text=f"Phương pháp: {method}", font=("Arial", 11)).grid(row=0, column=0, padx=20, pady=2)
+        tk.Label(info_frame, text=f"Kernel: {kernel_size}", font=("Arial", 11)).grid(row=0, column=1, padx=20, pady=2)
+        tk.Label(info_frame, text=f"Tổng số ảnh: {total}", font=("Arial", 11)).grid(row=1, column=0, padx=20, pady=2)
+        tk.Label(info_frame, text=f"Thành công: {success}", font=("Arial", 11)).grid(row=1, column=1, padx=20, pady=2)
+        tk.Label(info_frame, text=f"Thất bại: {failed}", font=("Arial", 11)).grid(row=2, column=0, padx=20, pady=2)
+        tk.Label(info_frame, text=f"PSNR trung bình: {avg_psnr_text}", font=("Arial", 11, "bold")).grid(row=2, column=1, padx=20, pady=2)
+        tk.Label(info_frame, text=f"SSIM trung bình: {avg_ssim_text}", font=("Arial", 11, "bold")).grid(row=3, column=0, columnspan=2, padx=20, pady=4)
 
-        info_frame.pack(
-            pady=5
-        )
-
-        tk.Label(
-            info_frame,
-            text=f"Phương pháp: {method}",
-            font=("Arial", 11)
-        ).grid(
-            row=0,
-            column=0,
-            padx=20,
-            pady=3
-        )
-
-        tk.Label(
-            info_frame,
-            text=f"Kernel: {kernel_size}",
-            font=("Arial", 11)
-        ).grid(
-            row=0,
-            column=1,
-            padx=20,
-            pady=3
-        )
-
-        tk.Label(
-            info_frame,
-            text=f"Tổng số ảnh: {total}",
-            font=("Arial", 11)
-        ).grid(
-            row=1,
-            column=0,
-            padx=20,
-            pady=3
-        )
-
-        tk.Label(
-            info_frame,
-            text=f"Thành công: {success}",
-            font=("Arial", 11)
-        ).grid(
-            row=1,
-            column=1,
-            padx=20,
-            pady=3
-        )
-
-        tk.Label(
-            info_frame,
-            text=f"Thất bại: {failed}",
-            font=("Arial", 11)
-        ).grid(
-            row=2,
-            column=0,
-            padx=20,
-            pady=3
-        )
-
-        tk.Label(
-            info_frame,
-            text=f"PSNR trung bình: {avg_psnr_text}",
-            font=("Arial", 11, "bold")
-        ).grid(
-            row=2,
-            column=1,
-            padx=20,
-            pady=3
-        )
-
-        tk.Label(
-            info_frame,
-            text=f"SSIM trung bình: {avg_ssim_text}",
-            font=("Arial", 11, "bold")
-        ).grid(
-            row=3,
-            column=0,
-            columnspan=2,
-            padx=20,
-            pady=5
-        )
-
-        # ----------------------------------------------------
-        # Ảnh mẫu trước / sau
-        # ----------------------------------------------------
-
+        # Tiêu đề phần duyệt ảnh
         sample_title = tk.Label(
             batch_window,
-            text="Ảnh mẫu trước và sau xử lý",
+            text="Danh sách ảnh mẫu đã xử lý",
             font=("Arial", 12, "bold")
         )
+        sample_title.pack(pady=(10, 2))
 
-        sample_title.pack(
-            pady=(15, 5)
+        # Nhãn hiển thị Tên file + Chỉ số của ảnh hiện tại
+        current_info_label = tk.Label(
+            batch_window,
+            text="",
+            font=("Arial", 10, "italic"),
+            fg="#2563eb"
         )
+        current_info_label.pack(pady=(0, 8))
 
-        sample_frame = tk.Frame(
-            batch_window
-        )
+        # Khung hiển thị 2 ảnh Before / After
+        sample_frame = tk.Frame(batch_window)
+        sample_frame.pack(expand=True)
 
-        sample_frame.pack(
-            expand=True
-        )
+        before_frame = tk.Frame(sample_frame)
+        before_frame.grid(row=0, column=0, padx=20)
 
-        before_frame = tk.Frame(
-            sample_frame
-        )
+        after_frame = tk.Frame(sample_frame)
+        after_frame.grid(row=0, column=1, padx=20)
 
-        before_frame.grid(
-            row=0,
-            column=0,
-            padx=20
-        )
+        tk.Label(before_frame, text="Ảnh trước", font=("Arial", 11, "bold")).pack(pady=4)
+        tk.Label(after_frame, text="Ảnh sau", font=("Arial", 11, "bold")).pack(pady=4)
 
-        after_frame = tk.Frame(
-            sample_frame
-        )
-
-        after_frame.grid(
-            row=0,
-            column=1,
-            padx=20
-        )
-
-        tk.Label(
-            before_frame,
-            text="Ảnh trước",
-            font=("Arial", 11, "bold")
-        ).pack(
-            pady=5
-        )
-
-        tk.Label(
-            after_frame,
-            text="Ảnh sau",
-            font=("Arial", 11, "bold")
-        ).pack(
-            pady=5
-        )
-
-        before_label = tk.Label(
-            before_frame,
-            text="Không có ảnh"
-        )
-
+        before_label = tk.Label(before_frame, text="Không có ảnh")
         before_label.pack()
 
-        after_label = tk.Label(
-            after_frame,
-            text="Không có ảnh"
-        )
-
+        after_label = tk.Label(after_frame, text="Không có ảnh")
         after_label.pack()
 
-        if (
-            sample_original is not None
-            and sample_result is not None
-        ):
-            show_image(
-                sample_original,
-                before_label,
-                max_width=350,
-                max_height=280
+        # Biến lưu vị trí chỉ số ảnh hiện tại (Bắt đầu từ 0)
+        current_index = [0]
+
+        # Hàm cập nhật hiển thị ảnh khi bấm Next/Prev
+        def update_display():
+            idx = current_index[0]
+            item = processed_items[idx]
+
+            # Cập nhật tên file & PSNR / SSIM riêng của ảnh đó
+            p_txt = "∞" if np.isinf(item["psnr"]) else f"{item['psnr']:.2f} dB"
+            s_txt = f"{item['ssim']:.4f}"
+
+            current_info_label.config(
+                text=f"[{idx + 1}/{len(processed_items)}] Tệp: {item['name']}  |  PSNR: {p_txt}  |  SSIM: {s_txt}"
             )
 
-            show_image(
-                sample_result,
-                after_label,
-                max_width=350,
-                max_height=280
-            )
+            # Hiển thị 2 hình ảnh (đã thêm fix update_idletasks)
+            show_image(item["original"], before_label, max_width=350, max_height=280)
+            show_image(item["restored"], after_label, max_width=350, max_height=280)
 
-        ttk.Button(
-            batch_window,
-            text="Đóng",
-            command=batch_window.destroy
-        ).pack(
-            pady=15
-        )
+            # Trạng thái bật/tắt nút điều hướng
+            prev_btn.config(state="normal" if idx > 0 else "disabled")
+            next_btn.config(state="normal" if idx < len(processed_items) - 1 else "disabled")
 
-        status_var.set(
-            f"Batch hoàn tất: {success}/{total} ảnh thành công."
-        )
+        def show_prev():
+            if current_index[0] > 0:
+                current_index[0] -= 1
+                update_display()
+
+        def show_next():
+            if current_index[0] < len(processed_items) - 1:
+                current_index[0] += 1
+                update_display()
+
+        # Khung chứa các NÚT ĐIỀU HƯỚNG
+        nav_frame = tk.Frame(batch_window)
+        nav_frame.pack(pady=10)
+
+        prev_btn = ttk.Button(nav_frame, text="◄ Ảnh trước", command=show_prev)
+        prev_btn.grid(row=0, column=0, padx=10)
+
+        next_btn = ttk.Button(nav_frame, text="Ảnh tiếp ►", command=show_next)
+        next_btn.grid(row=0, column=1, padx=10)
+
+        ttk.Button(nav_frame, text="Đóng", command=batch_window.destroy).grid(row=0, column=2, padx=25)
+
+        # Hiển thị ảnh đầu tiên
+        update_display()
+
+        status_var.set(f"Batch hoàn tất: {success}/{total} ảnh thành công.")
 
     except Exception as error:
-        messagebox.showerror(
-            "Lỗi Batch Processing",
-            str(error)
-        )
+        messagebox.showerror("Lỗi Batch Processing", str(error))
 
 
 # ============================================================
