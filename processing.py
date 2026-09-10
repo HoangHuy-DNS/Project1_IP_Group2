@@ -47,39 +47,54 @@ def bilateral_filter(image, kernel_size=5):
 
 
 # ============================================================
-# 4. SHARPENING
+# 4. SHARPENING (CẢI TIẾN)
 # ============================================================
 
-def sharpen_image(image, kernel_size=5):
+def sharpen_image(image, kernel_size=5, amount=1.5):
     """
-    Làm tăng độ sắc nét của ảnh.
+    Làm tăng độ sắc nét của ảnh bằng Unsharp Masking chuẩn.
 
-    Kernel được sử dụng để điều chỉnh mức độ
-    làm mượt trước khi tăng độ sắc nét.
+    Parameters
+    ----------
+    image : numpy.ndarray
+        Ảnh đầu vào (BGR/Gray).
+    kernel_size : int
+        Kích thước kernel làm mờ (nên là 5 hoặc 7).
+    amount : float
+        Mức độ làm nét (1.0 là vừa, 1.5 - 2.5 là nét mạnh).
     """
+    if image is None:
+        return None
 
     kernel_size = max(3, int(kernel_size))
-
     if kernel_size % 2 == 0:
         kernel_size += 1
 
+    # 1. Ép sang float32 để tính toán chính xác không bị tràn số (overflow)
+    img_float = image.astype(np.float32)
+
+    # 2. Tạo bản mờ với sigmaX rõ rệt (2.0 giúp tách biệt biên cạnh rõ hơn)
     blurred = cv2.GaussianBlur(
-        image,
+        img_float,
         (kernel_size, kernel_size),
+        sigmaX=2.0
+    )
+
+    # 3. Công thức Unsharp Masking chuẩn:
+    # Sharpened = Original + Amount * (Original - Blurred)
+    # Hay: Original * (1 + Amount) - Blurred * Amount
+    sharpened_float = cv2.addWeighted(
+        img_float,
+        1.0 + amount,
+        blurred,
+        -amount,
         0
     )
 
-    # Unsharp Mask
-    sharpened = cv2.addWeighted(
-        image,
-        1.5,
-        blurred,
-        -0.5,
-        0
-    )
+    # 4. Giới hạn dải pixel trong [0, 255] và chuyển lại uint8
+    sharpened = np.clip(sharpened_float, 0, 255).astype(np.uint8)
 
     return sharpened
-
 
 # ============================================================
 # 5. INPAINTING
@@ -189,9 +204,11 @@ def restore_image(
         )
 
     elif method == "Sharpening":
+        # Truyền thêm amount=1.5 (hoặc 2.0 nếu muốn nét cực mạnh để test)
         return sharpen_image(
             image,
-            kernel_size
+            kernel_size,
+            amount=1.5
         )
 
     elif method == "Inpainting":
